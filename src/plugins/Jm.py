@@ -10,34 +10,26 @@ from PIL import Image
 from time import sleep
 import shutil
 
-directory = r"D:\books"
-keep_folders = {"longimg", "pdf"}
-try:
-    # 遍历目录下的所有项
-    for item in os.listdir(directory):
-        item_path = os.path.join(directory, item)
-        
-        # 只处理文件夹
-        if os.path.isdir(item_path):
-            # 如果文件夹不在保留列表中，删除它
-            if item.lower() not in keep_folders:
-                shutil.rmtree(item_path, ignore_errors=True)  # 删除文件夹及其内容
-                print(f"Deleted folder: {item_path}")
-            else:
-                print(f"Kept folder: {item_path}")
+def clear():
+    directory = r"D:\books"
+    keep_folders = {"longimg", "pdf"}
+    try:
+        for item in os.listdir(directory):
+            item_path = os.path.join(directory, item)
+            if os.path.isdir(item_path):
+                if item.lower() not in keep_folders:
+                    shutil.rmtree(item_path, ignore_errors=True) 
+                    print(f"Deleted folder: {item_path}")
+                else:
+                    print(f"Kept folder: {item_path}")
 
-except FileNotFoundError:
-    print(f"Directory {directory} not found.")
-except PermissionError:
-    print("Permission denied. Please run the script with appropriate permissions.")
-except Exception as e:
-    print(f"An error occurred: {e}")
-
-Test = on_regex(pattern=r'^/jm\s+(\d+)$',priority=1)
-path = os.path.join(os.path.dirname(__file__), 'D:/code/jmcomic/option.yml')
-client = jmcomic.create_option(path).new_jm_client()
-base_path = r"D:\Books\longimg"
-
+    except FileNotFoundError:
+        print(f"Directory {directory} not found.")
+    except PermissionError:
+        print("Permission denied. Please run the script with appropriate permissions.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    return 0
 
 def get_comic_info(comic_id):
     """
@@ -60,6 +52,7 @@ def get_comic_info(comic_id):
     
     except Exception as e:
         return {"error": f"查询失败: {str(e)}. 可能ID不存在，或需要登录查看隐藏内容"}
+
 def get_sorted_sequence_numbers(base_directory, folder_name):
     """
     获取指定文件夹内png图片的升序序号列表（五位数格式）
@@ -85,6 +78,7 @@ def get_sorted_sequence_numbers(base_directory, folder_name):
     sequence_numbers.sort()
     formatted_numbers = [f"{num:05d}" for num in sequence_numbers]
     return formatted_numbers
+
 def split_image_if_too_long(input_path, max_length=14000):
     """
     读取图片，若高度超过 max_length，则切割成多个不超过 max_length 的图片，
@@ -125,43 +119,54 @@ def split_image_if_too_long(input_path, max_length=14000):
         output_paths.append(output_path)
 
     return output_paths
-@Test.handle()
-async def Test_send(bot: Bot, event: GroupMessageEvent, state: T_State):
+
+Jm = on_regex(pattern=r'^/jm\s+(\d+)$',priority=1)
+path = os.path.join(os.path.dirname(__file__), 'D:/code/jmcomic/option.yml')
+client = jmcomic.create_option(path).new_jm_client()
+base_path = r"D:\Books\pdf"
+
+@Jm.handle()
+async def Jm_send(bot: Bot, event: GroupMessageEvent, state: T_State):
+   
     user_msg = str(event.get_message()).strip()
     match = re.match(r'^/jm\s+(\d+)$', user_msg)
+   
     if match:
         # 提取 ID 并将其返回为对象
         manga_id = match.group(1)
         result = get_comic_info(manga_id)
+       
         if "error" in result:
             msg = "id不存在或输入错误"
-            await Test.finish(message=Message(msg))
+            await Jm.finish(message=Message(msg))
         else:
             # msg = f"漫画名称: {result['name']}-作者: {result['author']}"
             name=result['name']
             option = jmcomic.create_option_by_file('D:/code/jmcomic/option.yml')
             jmcomic.download_album(manga_id,option)
 
-            file_name = f"{name}.png"
+            file_name = f"{name}.pdf"
             full_path = os.path.join(base_path, file_name)
-            paths=split_image_if_too_long(full_path, max_length=10000)
-            messages=[]
-            finalmsg=Message(name)
-            for path in paths:
-                finalmsg+=Message(MessageSegment.image(path))
+            try:
+                # 调用 upload_group_file API 上传文件
+                await bot.call_api(
+                    "upload_group_file",
+                    group_id=event.group_id,
+                    file=full_path,
+                    name=file_name
+        )
+        # 上传成功后发送消息通知
+                await Jm.finish(f"你需要的 {file_name} 已发送")
+            except Exception as e:
+        # 上传失败时返回错误信息
+                if str(e)=="FinishedException()":
+                    return
+                await Jm.finish(f"文件上传失败：{str(e)}") 
+            # paths=split_image_if_too_long(full_path, max_length=10000)
+            # messages=[]
+            # finalmsg=Message(name)
             # for path in paths:
-            #     messages.append(MessageSegment.node_custom(user_id=10086, 
-            #                                                nickname=f"{name}", 
-            #                                                content=Message(MessageSegment.image(path))))
+            #     finalmsg+=Message(MessageSegment.image(path))
             
-            #messages=(MessageSegment.node_custom(user_id=10086, nickname=f"{name}",content=Message(finalmsg)))
-            #res_id = await bot.call_api("send_forward_msg", messages=Message(messages))
-            #await Test.finish(message=Message(MessageSegment.forward(res_id)))
-            # res = await Test.send(Message(finalmsg))
-            # if res['message_id'] is not None:
-            #     print(res['message_id'])
-            #     sleep(6)
-            #     bot.delete_msg(res['message_id'])
-            await Test.finish(message=Message(finalmsg))      
-            # await bot.call_api("upload_group_file", group_id=event.group_id,file='C:\Users\21276\Desktop\valaccount.txt')
-            # await Test.finish(message=Message())
+            # await Test.finish(message=Message(finalmsg))      
+
