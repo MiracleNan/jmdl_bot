@@ -9,9 +9,11 @@ from jmcomic import JmAlbumDetail
 from PIL import Image
 from time import sleep
 import shutil
+import random
+from PyPDF2 import PdfReader, PdfWriter
 
 def clear():
-    directory = r"D:\books"
+    directory = "/home/mira/Books"
     keep_folders = {"longimg", "pdf"}
     try:
         for item in os.listdir(directory):
@@ -120,11 +122,53 @@ def split_image_if_too_long(input_path, max_length=14000):
 
     return output_paths
 
+def modify_file(file_path,password):
+    try:
+        with open(file_path, 'a', encoding='utf-8') as f:
+            f.write(password)
+    except Exception as e:
+        print(f"无法修改文件 {file_path}: {e}")
+
+def encrypt_pdf(input_pdf_path):
+    """
+    使用随机生成的5位数字密码加密PDF文件，输出路径和源文件相同，
+    输出文件名为"密码+原文件名"
+    
+    :param input_pdf_path: 输入PDF文件的路径
+    :return: 随机生成的5位密码和生成的输出文件路径
+    """
+    # 随机生成一个5位数字作为密码
+    password = str(random.randint(10000, 99999))
+
+    # 获取源文件的目录和文件名
+    dir_name, original_file_name = os.path.split(input_pdf_path)
+    
+    # 创建输出文件名：密码+原文件名
+    output_file_name = f"{password}_{original_file_name}"
+    output_pdf_path = os.path.join(dir_name, output_file_name)
+    
+    # 创建 PDF Reader 和 Writer 对象
+    reader = PdfReader(input_pdf_path)
+    writer = PdfWriter()
+
+    # 将所有页面添加到 writer
+    for page_num in range(len(reader.pages)):
+        writer.add_page(reader.pages[page_num])
+
+    # 为 PDF 添加随机生成的密码
+    writer.encrypt(password)
+
+    # 将加密后的 PDF 写入新的文件
+    with open(output_pdf_path, "wb") as output_file:
+        writer.write(output_file)
+    modify_file(output_pdf_path,password)
+    return password, output_pdf_path
+
 Jm = on_regex(pattern=r'^/jm\s+(\d+)$',priority=1)
 
-path = os.path.join(os.path.dirname(__file__), 'D:/code/jmcomic/option.yml')
+path = os.path.join(os.path.dirname(__file__), '/home/mira/jmcomic/option.yml')
 client = jmcomic.create_option(path).new_jm_client()
-base_path = r"D:\Books\pdf"
+base_path = "/home/mira/Books/pdf"
 
 clear()
 
@@ -147,24 +191,26 @@ async def Jm_send(bot: Bot, event: GroupMessageEvent, state: T_State):
             name=jminfo['name']
             
             groupfiles = await bot.call_api("get_group_root_files", group_id=groupid)
-            group_file_names_set = set(file['file_name'] for file in groupfiles['files'])
+            # group_file_names_set = set(file['file_name'] for file in groupfiles['files'])
+            group_file_names_set = set(file['file_name'].split('_', 1)[-1] for file in groupfiles['files'])
+
             print(group_file_names_set)
             if (name+".pdf") in group_file_names_set:
-                await Jm.finish(message=Message(MessageSegment.at(usrid)+'漫画已存在于群文件'))
+                await Jm.finish(message=Message(MessageSegment.at(usrid)+' 漫画已存在于群文件'))
             
-            option = jmcomic.create_option_by_file('D:/code/jmcomic/option.yml')
+            option = jmcomic.create_option_by_file('/home/mira/jmcomic/option.yml')
             jmcomic.download_album(manga_id,option)
-            await bot.send_group_msg(group_id=groupid,message=Message(MessageSegment.at(usrid)+"下载完成，发送中请勿重复请求"))
+            await bot.send_group_msg(group_id=groupid,message=Message(MessageSegment.at(usrid)+" 下载完成，发送中\n请勿重复请求"))
             file_name = f"{name}.pdf"
             full_path = os.path.join(base_path, file_name)
-
+            _,output_pdf_path=encrypt_pdf(full_path)
             try:
                 # 调用 upload_group_file API 上传文件
                 await bot.call_api(
                     "upload_group_file",
                     group_id=event.group_id,
-                    file=full_path,
-                    name=file_name
+                    file=output_pdf_path
+                    # name=file_name
         )
         # 上传成功后发送消息通知
                 await Jm.finish(Message(MessageSegment.at(usrid)+f" 请求的 {file_name} 已发送"))
