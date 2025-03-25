@@ -56,12 +56,7 @@ def get_comic_info(comic_id):
         return {"error": f"查询失败: {str(e)}. 可能ID不存在，或需要登录查看隐藏内容"}
 
 def get_sorted_sequence_numbers(base_directory, folder_name):
-    """
-    获取指定文件夹内png图片的升序序号列表（五位数格式）
-    :param base_directory: 基础目录路径
-    :param folder_name: 文件夹名称（漫画名称）
-    :return: 升序排列的五位数格式序号列表
-    """
+
     target_folder = os.path.join(base_directory, folder_name)
     if not os.path.isdir(target_folder):
         return []
@@ -82,13 +77,7 @@ def get_sorted_sequence_numbers(base_directory, folder_name):
     return formatted_numbers
 
 def split_image_if_too_long(input_path, max_length=14000):
-    """
-    读取图片，若高度超过 max_length，则切割成多个不超过 max_length 的图片，
-    并储存在原路径下
-    :param input_path: 输入图片路径
-    :param max_length: 最大允许高度（默认 15000 像素）
-    :return: 返回生成的图片路径列表
-    """
+
     # 打开图片
     img = Image.open(input_path)
     width, height = img.size
@@ -130,13 +119,7 @@ def modify_file(file_path,password):
         print(f"无法修改文件 {file_path}: {e}")
 
 def encrypt_pdf(input_pdf_path):
-    """
-    使用随机生成的5位数字密码加密PDF文件，输出路径和源文件相同，
-    输出文件名为"密码+原文件名"
-    
-    :param input_pdf_path: 输入PDF文件的路径
-    :return: 随机生成的5位密码和生成的输出文件路径
-    """
+
     # 随机生成一个5位数字作为密码
     password = str(random.randint(10000, 99999))
 
