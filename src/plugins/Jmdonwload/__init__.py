@@ -111,7 +111,7 @@ async def Jm_send(bot: Bot, event: GroupMessageEvent, state: T_State):
             print(group_file_names_set)
             if (name+".pdf") in group_file_names_set:
                 await Jm.finish(message=Message(MessageSegment.at(usrid)+' 漫画已存在于群文件'))
-            
+            await bot.send_group_msg(group_id=groupid, message=MessageSegment.at(usrid) + " 开始下载漫画，请稍等...")
             option = jmcomic.create_option_by_file('/home/mira/jmcomic/option.yml')
             jmcomic.download_album(manga_id,option)
             await bot.send_group_msg(group_id=groupid,message=Message(MessageSegment.at(usrid)+" 下载完成，发送中\n请勿重复请求"))
@@ -131,7 +131,7 @@ async def Jm_send(bot: Bot, event: GroupMessageEvent, state: T_State):
                 if str(e)=="FinishedException()":
                     return
                 if str(e)=='''NetWorkError(message='WebSocket call api upload_group_file timeout')''':
-                    await Jm.finish(Message(MessageSegment.at(usrid)+f" 文件过大"))
+                    await Jm.finish(Message(MessageSegment.at(usrid)+f" 文件过大,若稍后未发送请换jm号重试"))
                 else:    
                     await Jm.finish(Message(MessageSegment.at(usrid)+f" 文件上传失败：{str(e)}")) 
    
