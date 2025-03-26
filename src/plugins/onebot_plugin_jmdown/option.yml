@@ -1,0 +1,13 @@
+download:
+  image:
+    suffix: .webp
+dir_rule:
+  base_dir: /home/mira/Books # 请改成需要的文件夹
+  rule: Bd / Ptitle
+plugins:  
+  after_album:
+      - plugin: img2pdf
+        kwargs:
+          pdf_dir: /home/mira/Books/pdf # 请改成需要的文件夹
+          filename_rule: Aname 
+

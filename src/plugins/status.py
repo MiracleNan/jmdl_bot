@@ -3,9 +3,7 @@ from nonebot.typing import T_State
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, Bot, Message
 from nonebot.adapters.onebot.v11 import MessageSegment
 import psutil
-from ping3 import ping
-from jmcomic import JmAlbumDetail
-import jmcomic
+from jmcomic import JmAlbumDetail,JmOption
 def get_cpu_usage():
     return psutil.cpu_percent(interval=1)
 
@@ -19,10 +17,8 @@ def get_disk_usage():
     return free_disk
 
 def netcheck():
-    path = '/home/mira/jmcomic/option.yml'
-    client = jmcomic.create_option(path).new_jm_client()
     try:
-        page = client.search_site(search_query=str(114514))
+        page = JmOption.default().new_jm_client().search_site(search_query=str(114514))
         album: JmAlbumDetail = page.single_album
         # 提取所需信息
         result = {
@@ -38,7 +34,6 @@ def netcheck():
         return "正常"
 
 Status = on_command(cmd="status",aliases={"状态","性能"},priority=10)
-domains=['jm-comic.org','jm-comic2.cc','18comic.vip','18comic.org']
 
 @Status.handle()
 async def Status_send(bot: Bot, event: GroupMessageEvent, state: T_State):
