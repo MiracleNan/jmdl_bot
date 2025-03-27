@@ -3,9 +3,12 @@ import jmcomic
 import os
 import yaml
 import json
-from nonebot import on_regex
-from nonebot.typing import T_State
-from nonebot.adapters.onebot.v11 import GroupMessageEvent, Bot, Message,MessageSegment
+from threading import Lock
+
+def get_file_lock(group_id,file_locks):
+    if group_id not in file_locks:
+        file_locks[group_id] = Lock()
+    return file_locks[group_id]
 
 def get_comic_info(comic_id):
     try:
@@ -22,8 +25,8 @@ def get_comic_info(comic_id):
     except Exception as e:
         return {"error": f"查询失败: {str(e)}. 可能ID不存在"}
 
-def count_tag(tags, filename="tags.txt"):
-    current_dir = os.getcwd()
+def count_tag(tags={}, filename="tags.txt"):
+    current_dir = os.path.dirname(os.path.abspath(__file__))
     tags_dir = os.path.join(current_dir, "tags")
 
     if not os.path.exists(tags_dir):
@@ -35,7 +38,6 @@ def count_tag(tags, filename="tags.txt"):
             return {}
 
     file_path = os.path.join(tags_dir, filename)
-
     dic = {}
 
     if os.path.isfile(file_path):
@@ -43,7 +45,8 @@ def count_tag(tags, filename="tags.txt"):
             dic = json.load(file)
 
     for tag in tags:
-        dic[tag] = dic.get(tag, 0) + 1
+        if tag not in ('全彩','中文'):
+            dic[tag] = dic.get(tag, 0) + 1
 
     try:
         with open(file_path, "w", encoding='utf-8') as f:

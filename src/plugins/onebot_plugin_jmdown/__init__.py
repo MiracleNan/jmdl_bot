@@ -9,11 +9,14 @@ Copyright: © 2025 <Your Name>. All rights reserved.
 """
 import re
 import os
-import jmcomic
 import random
 import shutil
 import asyncio
+import json
 import psutil
+import jmcomic
+from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 from nonebot import on_regex
 from nonebot.typing import T_State
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, Bot, Message, MessageSegment
@@ -22,9 +25,10 @@ from pikepdf import Pdf, Encryption
 from .func import clear, read_option_yml
 from .pdf_func import encrypt_pdf
 from .comic import *
-from concurrent.futures import ThreadPoolExecutor
 
 Jm = on_regex(pattern=r'^/jm\s+(\d+)$', priority=1)
+
+file_locks = {} 
 
 yml_path = os.path.join(os.path.dirname(__file__), "option.yml")
 _, pdf_dir = read_option_yml(yml_path)
@@ -43,7 +47,7 @@ def download_album_sync(manga_id, option):
     jmcomic.download_album(manga_id, option)
 
 async def check_and_clear(threshold=30):
-    #定期检查并清理磁盘空间
+
     global last_clear_time
     current_time = asyncio.get_event_loop().time()
     
@@ -62,34 +66,40 @@ async def check_and_clear(threshold=30):
 
 async def process_queue():
     while True:
-        bot, group_id, user_id, manga_id, name = await task_queue.get()
+        bot, group_id, user_id, manga_id, name ,tags= await task_queue.get()
+        
         file_name = f"{name}.pdf"  
         temp_file_name = f"{name}_{user_id}_{random.randint(1000, 9999)}.pdf"
         full_path = os.path.join(pdf_dir, temp_file_name)
         default_path = os.path.join(pdf_dir, file_name) 
-        
+        print(default_path)
+        output_pdf_path = None
         try:
-            # 检查群文件
+            
             groupfiles = await bot.call_api("get_group_root_files", group_id=group_id)
             group_file_names_set = set(file['file_name'].split('_', 1)[-1] for file in groupfiles['files'])
 
             if file_name in group_file_names_set:
                 await bot.send_group_msg(group_id=group_id, message=Message([MessageSegment.at(user_id), MessageSegment.text(f" 你查询的漫画：{name} 已存在于群文件")]))
-                task_queue.task_done()
+                # task_queue.task_done()
                 continue
             
-
             await check_and_clear(30)
             
-
             option = jmcomic.create_option_by_file(yml_path)
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(executor, download_album_sync, manga_id, option)
 
+            with get_file_lock(group_id,file_locks):  
+                await loop.run_in_executor(executor, count_tag, tags, f"{group_id}.txt")
+            
+            await loop.run_in_executor(executor, download_album_sync, manga_id, option)
+            await asyncio.sleep(1)
+            
             if not os.path.exists(default_path):
                 await bot.send_group_msg(group_id=group_id, message=Message([MessageSegment.at(user_id), MessageSegment.text(f" 下载 {name} 失败，文件未生成")]))
-                task_queue.task_done()
+                # task_queue.task_done()
                 continue
+            
             shutil.move(default_path, full_path)
             
             password, output_pdf_path = encrypt_pdf(full_path)
@@ -118,7 +128,7 @@ async def process_queue():
 
             if os.path.exists(full_path):
                 os.remove(full_path)
-            if os.path.exists(output_pdf_path):
+            if output_pdf_path and os.path.exists(output_pdf_path):
                 os.remove(output_pdf_path)
             task_queue.task_done()
 
@@ -148,10 +158,10 @@ async def Jm_send(bot: Bot, event: GroupMessageEvent, state: T_State):
             return
         
         name = jminfo['name']
-        
+        tags= jminfo['tags']
         if task_queue.full():
-            await Jm.finish(Message([MessageSegment.at(user_id), MessageSegment.text(f" 下载队列已满（最大 {MAX_QUEUE_SIZE} 个任务），请稍后再试")]))
+            await Jm.finish(Message([MessageSegment.at(user_id), MessageSegment.text(f" 队列已满（最大 {MAX_QUEUE_SIZE} 个任务），请稍后再试")]))
             return
         
-        await task_queue.put((bot, group_id, user_id, manga_id, name))
-        await Jm.finish(Message([MessageSegment.at(user_id), MessageSegment.text(f" 已加入下载队列：{name}（当前队列：{task_queue.qsize()}/{MAX_QUEUE_SIZE}），请耐心等待")]))
+        await task_queue.put((bot, group_id, user_id, manga_id, name,tags))
+        await Jm.finish(Message([MessageSegment.at(user_id), MessageSegment.text(f" 已加入队列：{name}（当前队列：{task_queue.qsize()}/{MAX_QUEUE_SIZE}），请耐心等待")]))
