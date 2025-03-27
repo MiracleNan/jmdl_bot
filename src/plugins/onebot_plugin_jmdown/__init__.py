@@ -43,12 +43,12 @@ def download_album_sync(manga_id, option):
     jmcomic.download_album(manga_id, option)
 
 async def check_and_clear(threshold=30):
-    """定期检查并清理磁盘空间"""
+    #定期检查并清理磁盘空间
     global last_clear_time
     current_time = asyncio.get_event_loop().time()
     
     if current_time - last_clear_time >= CLEAR_INTERVAL:
-        disk = psutil.disk_usage(pdf_dir)  # 检查 pdf_dir 所在分区
+        disk = psutil.disk_usage(pdf_dir)
         free_disk = disk.free / (1024 ** 3)  # GB
         print(f"Disk free space: {free_disk:.2f} GB")
         
