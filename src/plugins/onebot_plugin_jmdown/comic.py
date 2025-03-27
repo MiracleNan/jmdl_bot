@@ -1,5 +1,10 @@
 from jmcomic import JmAlbumDetail,JmOption
-import jmcomic,os,yaml,argparse
+import jmcomic
+import os
+import yaml
+from nonebot import on_regex
+from nonebot.typing import T_State
+from nonebot.adapters.onebot.v11 import GroupMessageEvent, Bot, Message,MessageSegment
 
 def get_comic_info(comic_id):
     try:

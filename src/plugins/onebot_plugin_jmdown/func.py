@@ -1,11 +1,9 @@
-import os,yaml,shutil,psutil
+import os
+import yaml
+import psutil
+import shutil
 
 def read_option_yml(file_path: str = None) -> tuple[str, str] | None:
-    """
-    从 option.yml 文件中读取 base_dir 和 pdf_dir
-    :param file_path: option.yml 文件路径，默认为当前目录下的 option.yml
-    :return: (base_dir, pdf_dir) 元组，如果读取失败则返回 None
-    """
     if file_path is None:
         file_path = os.path.join(os.path.dirname(__file__), "option.yml")
     
@@ -30,10 +28,6 @@ def read_option_yml(file_path: str = None) -> tuple[str, str] | None:
         return None
 
 def clear(threshold=float('inf')) -> int:
-    """
-    根据 option.yml 中的 base_dir 清理目录，保留 longimg 和 pdf 文件夹
-    :return: 0 表示成功，其他值表示失败
-    """
     config = read_option_yml()
     if config is None:
         print("无法读取 base_dir 和 pdf_dir，清理操作中止")

@@ -4,6 +4,7 @@ from nonebot.adapters.onebot.v11 import GroupMessageEvent, Bot, Message
 from nonebot.adapters.onebot.v11 import MessageSegment
 import psutil
 from jmcomic import JmAlbumDetail,JmOption
+
 def get_cpu_usage():
     return psutil.cpu_percent(interval=1)
 

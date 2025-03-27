@@ -1,10 +1,11 @@
+'''
+对打包好的pdf进行加密
+'''
 from pikepdf import Pdf, Encryption
-import os,random
+import os
+import random
 
 def encrypt_pdf(input_pdf_path):
-    '''
-    对打包好的pdf进行加密
-    '''
     password = str(random.randint(10000, 99999))
 
     dir_name, original_file_name = os.path.split(input_pdf_path)
