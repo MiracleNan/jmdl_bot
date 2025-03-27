@@ -3,3 +3,4 @@ nonebot==1.9.1
 pikepdf==9.5.2
 psutil==6.1.1
 PyYAML==6.0.2
+wordcloud==1.9.4
