@@ -41,6 +41,7 @@ async def Status_send(bot: Bot, event: GroupMessageEvent, state: T_State):
     cpu = get_cpu_usage()
     mem_percent, mem_total, mem_used = get_memory_usage()
     free_disk = get_disk_usage()
-    network_status = netcheck()
-    result = f"CPU:{cpu}% 内存:{mem_percent}%({mem_used:.1f}/{mem_total:.1f}GB) 剩余硬盘:{free_disk:.1f}GB 网络:{network_status}"
-    await Status.finish(message=Message(result))
+
+    result = f"CPU:{cpu}% 内存:{mem_percent}%({mem_used:.1f}/{mem_total:.1f}GB) 剩余硬盘:{free_disk:.1f}GB"
+    await bot.send_group_msg(group_id=event.group_id,message=Message(result))
+    await Status.finish(message=Message(f"与jm连接{netcheck()}"))
