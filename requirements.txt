@@ -29,7 +29,7 @@ httpx==0.28.1
 idna==3.10
 img2pdf==0.6.0
 importlib_metadata==8.6.1
-jmcomic==2.5.32
+jmcomic==2.6.20
 loguru==0.7.3
 lxml==5.3.1
 lz4==4.3.3

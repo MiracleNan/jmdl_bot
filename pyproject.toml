@@ -12,3 +12,6 @@ adapters = [
 plugins = []
 plugin_dirs = ["src/plugins"]
 builtin_plugins = ["echo"]
+
+[tool.nonebot.drivers]
+fastapi = { host = "0.0.0.0", port = 8080 }
