@@ -12,8 +12,14 @@ from fastapi.responses import HTMLResponse
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-from .onebot_plugin_jmdown import task_queue, pdf_dir, yml_path, executor, _processing
+import sys
+from .onebot_plugin_jmdown import task_queue, pdf_dir, yml_path, executor
 from .onebot_plugin_jmdown.comic import get_comic_info, search_comic, get_ranking, get_comic_detail
+
+def _get_processing():
+    """动态读取处理中的任务状态（避免 Python import 值捕获）"""
+    mod = sys.modules.get("src.plugins.onebot_plugin_jmdown")
+    return getattr(mod, "_processing", None) if mod else None
 
 # ============ 工具函数 ============
 
@@ -36,7 +42,7 @@ async def api_status():
     return {
         "running": True,
         "queue": {"size": task_queue.qsize(), "max": task_queue.maxsize},
-        "processing": _processing,
+        "processing": _get_processing(),
         "cpu": {"percent": cpu},
         "memory": {"percent": mem.percent, "used_gb": round(mem.used/(1024**3),1), "total_gb": round(mem.total/(1024**3),1)},
         "disk": {"free_gb": round(d.free/(1024**3),1), "total_gb": round(d.total/(1024**3),1)},
@@ -183,7 +189,7 @@ async def ws_endpoint(ws: WebSocket):
             mem = psutil.virtual_memory()
             await ws.send_json({
                 "queue": {"size": task_queue.qsize(), "max": task_queue.maxsize},
-                "processing": _processing,
+                "processing": _get_processing(),
                 "cpu": cpu, "mem": mem.percent
             })
     except WebSocketDisconnect: pass

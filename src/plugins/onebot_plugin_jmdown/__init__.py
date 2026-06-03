@@ -14,6 +14,7 @@ import uuid
 import shutil
 import asyncio
 import json
+import datetime
 import psutil
 import jmcomic
 from concurrent.futures import ThreadPoolExecutor
@@ -56,7 +57,6 @@ def check_rate_limit(user_id: int, cmd: str) -> tuple[bool, int]:
 
 def add_log(level, msg):
     """写入日志文件"""
-    import datetime
     time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{time_str}] [{level}] {msg}\n"
     try:
@@ -163,15 +163,42 @@ async def process_queue():
             default_path = os.path.join(pdf_dir, file_name)
             print(default_path)
             output_pdf_path = None
-            interim_msg_ids = [queue_msg_id] if queue_msg_id else []  # 收集中间消息用于撤回
+            interim_msg_ids = [queue_msg_id] if queue_msg_id else []
+
+            # WebUI 触发或 bot 不可用时的保护
+            if bot is None:
+                add_log("WARN", f"WebUI 触发下载，跳过群文件上传: {name}")
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(executor, download_album_sync, manga_id, jmcomic.create_option_by_file(yml_path))
+                await asyncio.sleep(1)
+                if os.path.exists(default_path):
+                    shutil.move(default_path, full_path)
+                    password, output_pdf_path = encrypt_pdf(full_path)
+                    file_size = os.path.getsize(output_pdf_path) / (1024 * 1024)
+                    add_log("SUCCESS", f"WebUI下载完成: {name} ({file_size:.1f}MB) 密码: {password}")
+                    add_history(name, manga_id, "success", file_size)
+                _processing = None
+                task_queue.task_done()
+                continue
 
             try:
                 groupfiles = await bot.call_api("get_group_root_files", group_id=group_id)
-                group_file_names_set = set(file['file_name'].split('_', 1)[-1] for file in groupfiles['files'])
+                # 去重：用上传时的实际文件名 (password_mangaId.pdf) 来比对
+                group_file_names_set = set()
+                for f in groupfiles['files']:
+                    # 新的格式: password_mangaId.pdf, 旧的格式: password_name.pdf
+                    # 统一提取 mangaId 进行比对
+                    fname = f['file_name']
+                    if '_' in fname:
+                        rest = fname.rsplit('.', 1)[0]  # 去掉 .pdf
+                        if '_' in rest:
+                            parts = rest.split('_')
+                            if parts[-1].isdigit():
+                                group_file_names_set.add(parts[-1])  # manga_id
 
-                if file_name in group_file_names_set:
+                if manga_id in group_file_names_set:
                     add_log("WARN", f"文件已存在: {name}")
-                    resp = await bot.send_group_msg(group_id=group_id, message=Message([MessageSegment.at(user_id), MessageSegment.text(f" 你查询的漫画：{name} 已存在于群文件")]))
+                    await bot.send_group_msg(group_id=group_id, message=Message([MessageSegment.at(user_id), MessageSegment.text(f" 你查询的漫画：{name} 已存在于群文件")]))
                     continue
 
                 await check_and_clear(30)
@@ -198,12 +225,10 @@ async def process_queue():
                 file_size = os.path.getsize(output_pdf_path) / (1024 * 1024)
                 add_log("SUCCESS", f"打包完成: {name} ({file_size:.1f}MB)")
 
-                # 打包完成通知（发送后稍后撤回）
                 pack_msg = await bot.send_group_msg(group_id=group_id, message=Message([MessageSegment.text(f" 📦 {name[:30]}... 打包完成，上传中...")]))
-                if pack_msg and 'message_id' in pack_msg:
+                if pack_msg and isinstance(pack_msg, dict) and 'message_id' in pack_msg:
                     interim_msg_ids.append(pack_msg['message_id'])
 
-                # 上传文件
                 upload_name = f"{password}_{manga_id}.pdf"
                 add_log("INFO", f"正在上传: {name}")
                 await bot.call_api(
@@ -215,10 +240,8 @@ async def process_queue():
                 add_log("SUCCESS", f"上传完成: {name}")
                 add_history(name, manga_id, "success", file_size)
 
-                # 撤回所有中间消息
                 asyncio.create_task(safe_delete(bot, interim_msg_ids))
 
-                # 唯一最终消息
                 await bot.send_group_msg(group_id=group_id, message=Message([MessageSegment.at(user_id), MessageSegment.text(f" {name} ({file_size:.1f}MB) 已上传群文件，密码: {password}")]))
 
             except Exception as e:
@@ -290,8 +313,62 @@ async def Jm_send(bot: Bot, event: GroupMessageEvent, state: T_State):
 # ============ 新增命令 ============
 
 JmSearch = on_regex(pattern=r'^/jms\s+(.+)$', priority=5)
+JmTag = on_regex(pattern=r'^/jmstag\s+(.+)$', priority=5)
 JmRank = on_regex(pattern=r'^/jmrank(\s+.*)?$', priority=5)
 JmInfo = on_regex(pattern=r'^/jminfo\s+(\S+)$', priority=5)
+
+
+@JmTag.handle()
+async def JmTag_send(bot: Bot, event: GroupMessageEvent, state: T_State):
+    match = re.match(r'^/jmstag\s+(.+)$', str(event.get_message()).strip())
+    if not match:
+        return
+    user_id = event.user_id
+    allowed, cooldown = check_rate_limit(user_id, "jms")
+    if not allowed:
+        await JmTag.finish(Message([MessageSegment.at(user_id), MessageSegment.text(f" 搜索太频繁，{cooldown}秒后再试")]))
+        return
+
+    args = match.group(1).split()
+    noai = False
+    if args[0].lower() == 'noai':
+        noai = True
+        args = args[1:]
+
+    if not args:
+        await JmTag.finish("用法: /jmstag [noai] <标签> [页码] [排序:mr/mv/mp/tf]")
+        return
+
+    valid_orders = {"mr", "mv", "mp", "tf"}
+    order = "mr"
+    page = 1
+    tail_count = 0
+    if args[-1] in valid_orders:
+        order = args[-1]; tail_count += 1
+    idx = len(args) - 1 - tail_count
+    if idx >= 0 and args[idx].isdigit():
+        page = int(args[idx]); tail_count += 1
+    tag = " ".join(args[:len(args) - tail_count]) if tail_count > 0 else " ".join(args)
+
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(executor, search_comic_by_tag, tag, page, order, noai)
+
+    if "error" in result:
+        await JmTag.finish(result["error"])
+        return
+    if not result["results"]:
+        await JmTag.finish(f"未找到标签 '{tag}' 的结果")
+        return
+
+    order_map = {"mr": "最新", "mv": "最多浏览", "mp": "最多图片", "tf": "最多喜欢"}
+    order_name = order_map.get(order, order)
+    text = f"🏷 标签: {tag}{' · 无AI' if noai else ''} | {order_name} | 第{page}页/{result['page_count']}页\n"
+    for i, r in enumerate(result["results"], 1):
+        name_display = r['name'] if len(r['name']) <= 45 else r['name'][:42] + "..."
+        text += f"\n{i}. [{r['id']}] {name_display}"
+
+    text += f"\n\n📥 /jm <ID> 即可下载 | /jminfo <ID> 查看详情"
+    await JmTag.finish(Message(text))
 
 
 @JmSearch.handle()
@@ -299,32 +376,65 @@ async def JmSearch_send(bot: Bot, event: GroupMessageEvent, state: T_State):
     match = re.match(r'^/jms\s+(.+)$', str(event.get_message()).strip())
     if not match:
         return
+    user_id = event.user_id
     args = match.group(1).split()
-    query = args[0] if args else ""
-    page = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
-    order = args[2] if len(args) > 2 else "mr"
+    noai = False
 
-    if not query:
-        await JmSearch.finish("用法: /jms <关键词> [页码] [排序:mr/mv/mp/tf]")
+    # 检查 noai 前缀
+    if args[0].lower() == 'noai':
+        noai = True
+        args = args[1:]
+
+    if not args:
+        await JmSearch.finish("用法: /jms [noai] <关键词> [页码] [排序:mr/mv/mp/tf]")
         return
 
+    # 频率限制
+    allowed, cooldown = check_rate_limit(user_id, "jms")
+    if not allowed:
+        await JmSearch.finish(Message([MessageSegment.at(user_id), MessageSegment.text(f" 搜索太频繁，{cooldown}秒后再试")]))
+        return
+
+    # 解析: 最后参数可能是排序/页码，其余是关键词
+    order = "mr"
+    page = 1
+    tail_count = 0  # 末尾被识别为参数的数量
+
+    valid_orders = {"mr", "mv", "mp", "tf"}
+
+    # 看最后一个是不是排序
+    if args[-1] in valid_orders:
+        order = args[-1]
+        tail_count += 1
+
+    # 看倒数第N个是不是页码
+    idx = len(args) - 1 - tail_count
+    if idx >= 0 and args[idx].isdigit():
+        page = int(args[idx])
+        tail_count += 1
+
+    # 其余的作为关键词
+    query = " ".join(args[:len(args) - tail_count]) if tail_count > 0 else " ".join(args)
+
     loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(executor, search_comic, query, page, order)
+    result = await loop.run_in_executor(executor, search_comic_smart, query, page, order, noai)
 
     if "error" in result:
         await JmSearch.finish(result["error"])
         return
 
     if not result["results"]:
-        await JmSearch.finish(f"未找到与 '{query}' 相关的结果")
+        suffix = " (已过滤AI)" if noai else ""
+        await JmSearch.finish(f"未找到与 '{query}' 相关的结果{suffix}")
         return
 
     order_map = {"mr": "最新", "mv": "最多浏览", "mp": "最多图片", "tf": "最多喜欢"}
     order_name = order_map.get(order, order)
-    text = f"🔍 搜索: {query} | {order_name} | 第{page}页/{result['page_count']}页\n"
+    noai_label = " · 无AI" if noai else ""
+    text = f"🔍 搜索: {query}{noai_label} | {order_name} | 第{page}页/{result['page_count']}页\n"
     for i, r in enumerate(result["results"], 1):
-        tags_str = ",".join(r["tags"][:5]) if r["tags"] else "无"
-        text += f"\n{i}. [{r['id']}] {r['name'][:40]}\n   🏷 {tags_str}"
+        name_display = r['name'] if len(r['name']) <= 45 else r['name'][:42] + "..."
+        text += f"\n{i}. [{r['id']}] {name_display}"
 
     text += f"\n\n📥 /jm <ID> 即可下载"
     await JmSearch.finish(Message(text))
